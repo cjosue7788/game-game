@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Oceanica — Mundo submarino 2.5D</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#061a3b;font-family:system-ui,sans-serif}
+#game{display:block;width:100vw;height:100vh;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}#game:active{cursor:grabbing}
+.hud{position:fixed;left:18px;top:16px;color:#e9fbff;background:#071e3dbb;border:1px solid #78d9f177;border-radius:14px;padding:10px 14px;backdrop-filter:blur(8px);pointer-events:none}
+.hud b{display:block;font-size:14px;letter-spacing:.12em}.hud small{opacity:.8}.help{position:fixed;right:18px;bottom:16px;color:#d8f7ff;background:#071e3dbb;border:1px solid #78d9f155;border-radius:12px;padding:9px 12px;font-size:12px;pointer-events:none}
+.lightbtn{color:#e9fbff;background:#071e3dcc;border:1px solid #78d9f188;border-radius:12px;padding:9px 13px;font:600 12px system-ui,sans-serif;cursor:pointer}.lightbtn:hover{background:#0d3a66dd}
+/* ---- HUD de juego ---- */
+#ui img{display:block;user-select:none;-webkit-user-drag:none;pointer-events:none}
+.help{right:12px!important;bottom:calc(clamp(150px,19vw,230px)*1.08 + 10px)!important;max-width:clamp(150px,19vw,230px);text-align:right;line-height:1.35}
+.menuBtn{position:fixed;right:12px;top:10px;width:clamp(62px,7vw,92px);padding:0;border:0;background:none;cursor:pointer;filter:drop-shadow(0 4px 8px #0008);transition:transform .12s}
+.menuBtn:hover{transform:scale(1.06)}.menuBtn:active{transform:scale(.97)}.menuBtn img{width:100%}
+.menuPanel{position:fixed;right:14px;top:calc(clamp(62px,7vw,92px) + 14px);display:flex;flex-direction:column;gap:8px;padding:10px;background:#071e3dee;border:1px solid #78d9f177;border-radius:14px;backdrop-filter:blur(8px)}
+.menuPanel[hidden]{display:none}
+#radar{position:fixed;right:8px;bottom:4px;width:clamp(150px,19vw,230px);aspect-ratio:1146/1236;pointer-events:none;filter:drop-shadow(0 6px 10px #0009)}
+#radar canvas{position:absolute;left:15.1%;top:24.3%;width:69.8%;height:64.7%;border-radius:50%;pointer-events:auto;cursor:crosshair;touch-action:none}
+#radar .frame{position:absolute;inset:0;width:100%;height:100%}
+#bar{position:fixed;left:8px;bottom:4px;width:clamp(330px,46vw,640px);aspect-ratio:2145/397;pointer-events:none;filter:drop-shadow(0 6px 10px #0009)}
+#bar .frame{position:absolute;inset:0;width:100%;height:100%}
+#hearts{position:absolute;left:19.92%;top:26.13%;width:59.92%;height:16.67%;display:flex;justify-content:space-evenly;align-items:center}
+.heart{height:105%;aspect-ratio:1;flex:none;background:url(assets/ui/hearts.png) no-repeat;background-size:300% 100%;image-rendering:pixelated;background-position:100% 0;transform:translate(-3.1%,3.1%);transition:background-position .15s,filter .2s;filter:drop-shadow(0 1px 0 #0006)}
+.heart.full{background-position:0 0}.heart.half{background-position:50% 0}
+#slots{position:absolute;left:17.3%;top:54.9%;width:64.9%;height:31%;display:grid;grid-template-columns:repeat(9,1fr);column-gap:1.5%}
+.slot{position:relative;display:grid;place-items:center;border-radius:14%;pointer-events:auto;cursor:pointer}
+.slot img{width:62%;height:auto;max-height:70%;object-fit:contain;image-rendering:pixelated;margin-top:-6%}
+.slot.sel{box-shadow:inset 0 0 0 2px #fff,0 0 10px 2px #7ff6ff;background:#7ff6ff22}
+.slot i{position:absolute;left:8%;top:4%;font:700 9px system-ui,sans-serif;color:#d8f7ffaa;font-style:normal}
+@media(max-width:700px){.help{display:none}}
+#loading{position:fixed;inset:0;display:grid;place-items:center;color:#dffaff;background:#061a3b;font-size:18px;z-index:5}
+</style></head><body><div id="loading">Preparando el océano…</div><canvas id="game"></canvas>
+<div class="hud"><b>OCEÁNICA</b><small>Un mundo submarino por explorar</small></div>
+<div class="help">Arrastra para explorar · WASD / flechas · Rueda para zoom · 1–9 ranuras · L: luz / oscuridad</div>
+<div id="ui">
+ <button class="menuBtn" id="menuBtn" type="button" aria-label="Menú"><img src="assets/ui/hud_menu.png" alt=""></button>
+ <div class="menuPanel" id="menuPanel" hidden>
+  <button class="lightbtn" id="lightBtn" type="button">🌙 Modo profundo (L)</button>
+  <button class="lightbtn" id="homeBtn" type="button">🎯 Centrar mapa</button>
+ </div>
+ <div id="radar"><canvas id="mm" width="360" height="360"></canvas><img class="frame" src="assets/ui/hud_radar.png" alt=""></div>
+ <div id="bar"><img class="frame" src="assets/ui/hud_bar.png" alt=""><div id="hearts"></div><div id="slots"></div></div>
+</div>
+<script>
+(async()=>{
+/* ---------- Manifest (con respaldo si fetch falla, p. ej. al abrir con file://) ---------- */
+const pad=n=>String(n).padStart(2,'0');
+const seq=(dir,pre,n)=>Array.from({length:n},(_,i)=>`assets/${dir}/${pre}_${pad(i+1)}.png`);
+const FISH_NAMES=['Anchovy','Angelfish','Barracuda','Bluegill','ButterflyFish','Capelin','Carp','Catfish','Chub','Clownfish','Cod','Eel','Flounder','Grouper','Haddock','Koi','LargemouthBass','Lionfish','Mackerel','Marlin','Minnow','Mudskipper','OceanSunfish','Perch','Pike','RainbowTrout','RedSnapper','Salmon','Sardine','Seabass','Shrimp','SmallmouthBass','Sturgeon','Swordfish','Tigerfish','Tilapia','Tuna','Walleye'];
+const fallback={houses:seq('houses','house',3),corals:seq('corals','coral',14),structures:seq('structures','structure',23),fish:FISH_NAMES.map(n=>`assets/fish/${n}.png`)};
+let manifest;
+try{const r=await fetch('assets.json');if(!r.ok)throw new Error(r.status);manifest=await r.json();}
+catch(err){console.warn('No se pudo cargar assets.json, uso la lista interna.',err);manifest=fallback;}
+
+const load=src=>new Promise(res=>{const im=new Image();im.onload=()=>res(im);im.onerror=()=>res(null);im.src=src});
+const [bg,...groups]=await Promise.all([load('assets/background.png'),...['houses','corals','structures','fish'].map(k=>Promise.all(manifest[k].map(load)))]);
+const [houses,corals,structures,fishImgs]=groups;
+const canvas=document.querySelector('#game'),ctx=canvas.getContext('2d');
+const W=5200,H=2900;let vw=innerWidth,vh=innerHeight,dpr=1,cam={x:W/2,y:H/2,zoom:1};
+const MAX_ZOOM=1.65;
+const minZoom=()=>Math.max(.55,vw/W,vh/H);   // nunca mostrar fuera del mundo
+function clampCam(){
+ cam.zoom=Math.max(minZoom(),Math.min(Math.max(MAX_ZOOM,minZoom()),cam.zoom));
+ const hw=vw/(2*cam.zoom),hh=vh/(2*cam.zoom);
+ cam.x=hw*2>=W?W/2:Math.max(hw,Math.min(W-hw,cam.x));
+ cam.y=hh*2>=H?H/2:Math.max(hh,Math.min(H-hh,cam.y));
+}
+function resize(){dpr=Math.min(devicePixelRatio||1,2);vw=innerWidth;vh=innerHeight;canvas.width=vw*dpr;canvas.height=vh*dpr;canvas.style.width=vw+'px';canvas.style.height=vh+'px';clampCam();}
+addEventListener('resize',resize);resize();
+
+const rnd=(a,b)=>a+Math.random()*(b-a),pick=a=>a[Math.floor(Math.random()*a.length)];
+const sprites=[];
+function add(img,x,y,w,depth,kind){if(img)sprites.push({img,x,y,w,h:w*img.height/img.width,depth,kind,phase:rnd(0,6.28),cache:null,cacheKey:0,glow:null});}
+function placeMany(arr,count,zone='reef'){
+ const ok=arr.filter(Boolean);if(!ok.length)return;
+ for(let i=0;i<count;i++){const img=pick(ok);
+  const x=rnd(100,W-100),y=zone==='reef'?rnd(H*.43,H-70):rnd(H*.35,H*.78);
+  const w=arr===corals?rnd(48,92):arr===structures?rnd(58,112):rnd(92,138);
+  add(img,x,y,w,y/H,arr===corals?'coral':arr===structures?'structure':'house');
+ }
+}
+placeMany(corals,112);placeMany(structures,36);placeMany(houses,17);
+sprites.sort((a,b)=>a.y-b.y);   // el orden por profundidad no cambia: se ordena una sola vez
+
+/* ---------- Peces: se mueven por grupos para que los cardúmenes no se deshagan ---------- */
+const fishTypes=['ButterflyFish.png','Clownfish.png','Angelfish.png','Bluegill.png','Koi.png','RainbowTrout.png','RedSnapper.png','Sardine.png','Tilapia.png','Tuna.png','Mackerel.png'];
+const fishByName={};manifest.fish.forEach((p,i)=>fishByName[p.split('/').pop()]=fishImgs[i]);
+const chosen=fishTypes.map(n=>fishByName[n]).filter(Boolean);
+const fishGroups=[];
+function layoutGroup(g,initial){
+ const count=Math.random()<.32?Math.floor(rnd(3,6)):1,size=rnd(.8,1.5),img=pick(chosen);
+ g.baseY=rnd(330,H-240);g.speed=rnd(45,105);
+ g.x=initial?rnd(-W*.2,W):-rnd(80,650);
+ g.delay=initial?0:rnd(1,8);          // pausa solo al reaparecer, no al iniciar
+ g.age=rnd(0,100);g.fish=[];let ox=0;
+ for(let j=0;j<count;j++){if(j>0)ox+=rnd(24,44);
+  g.fish.push({ox,oy:j?rnd(-22,22):0,scale:size*rnd(.8,1.08),bob:rnd(0,6.28),img});}
+ g.tail=ox;
+}
+if(chosen.length)for(let i=0;i<27;i++){const g={};layoutGroup(g,true);fishGroups.push(g);}
+const bubbles=Array.from({length:150},()=>({x:rnd(0,W),y:rnd(0,H),r:rnd(1,4),v:rnd(10,28),a:rnd(.12,.4)}));
+
+/* =====================  ILUMINACIÓN Y EFECTOS  ===================== */
+const mk=(w,h)=>{const c=document.createElement('canvas');c.width=w;c.height=h;return c};
+const TAU=Math.PI*2;
+
+// Sprites de luz reutilizables (se pintan escalados; muy baratos)
+function makeGlow(r,g,b,size=128){
+ const c=mk(size,size),x=c.getContext('2d'),h=size/2,gr=x.createRadialGradient(h,h,0,h,h,h);
+ gr.addColorStop(0,`rgba(${r},${g},${b},1)`);gr.addColorStop(.25,`rgba(${r},${g},${b},.45)`);gr.addColorStop(.6,`rgba(${r},${g},${b},.12)`);gr.addColorStop(1,`rgba(${r},${g},${b},0)`);
+ x.fillStyle=gr;x.fillRect(0,0,size,size);return c;
+}
+function makeCut(size=128){   // máscara para "perforar" la oscuridad: caída casi gaussiana, sin bordes duros
+ const c=mk(size,size),x=c.getContext('2d'),h=size/2,gr=x.createRadialGradient(h,h,0,h,h,h);
+ gr.addColorStop(0,'rgba(0,0,0,1)');gr.addColorStop(.2,'rgba(0,0,0,.72)');gr.addColorStop(.45,'rgba(0,0,0,.3)');gr.addColorStop(.7,'rgba(0,0,0,.07)');gr.addColorStop(1,'rgba(0,0,0,0)');
+ x.fillStyle=gr;x.fillRect(0,0,size,size);return c;
+}
+const PALETTE=[[80,255,225],[255,110,215],[255,196,90],[120,160,255],[160,255,140]];
+const glowSprites=PALETTE.map(([r,g,b])=>makeGlow(r,g,b));
+const dotGlow=makeGlow(190,245,255,32);
+const lampGlow=makeGlow(255,236,190,256);
+const cutSprite=makeCut();
+const contactGrad=(()=>{const g=ctx.createRadialGradient(0,0,0,0,0,1);g.addColorStop(0,'rgba(0,8,24,.9)');g.addColorStop(1,'rgba(0,8,24,0)');return g})();
+
+// Cáusticas: textura continua generada una vez (suma de ondas con periodo entero => sin costuras)
+const causticTile=(()=>{
+ const N=256,c=mk(N,N),x=c.getContext('2d'),im=x.createImageData(N,N);
+ for(let py=0;py<N;py++)for(let px=0;px<N;px++){
+  const u=px/N*TAU,v=py/N*TAU,wx=u+.55*Math.sin(2*v+1.3),wy=v+.55*Math.sin(2*u+.7);
+  const f1=Math.sin(3*wx+1.4*Math.sin(2*wy)),f2=Math.sin(3*wy+1.4*Math.sin(2*wx));
+  const m=Math.pow(Math.max(0,1-Math.abs(.5*f1+.5*f2)),7),i=(py*N+px)*4;
+  im.data[i]=150;im.data[i+1]=255;im.data[i+2]=240;im.data[i+3]=Math.min(255,m*300);
+ }
+ x.putImageData(im,0,0);return c;
+})();
+const causticPat=ctx.createPattern(causticTile,'repeat');
+
+// Sombras proyectadas: silueta oscura suavizada de cada sprite (se crea una vez por imagen)
+const silCache=new Map();
+function silhouette(img){
+ let o=silCache.get(img);if(o)return o;
+ const sw=80,sh=Math.max(2,Math.round(80*img.height/img.width)),pad=8,c=mk(sw+pad*2,sh+pad*2),g=c.getContext('2d');
+ if('filter' in g)g.filter='blur(2.5px)';
+ g.drawImage(img,pad,pad,sw,sh);g.filter='none';
+ g.globalCompositeOperation='source-in';g.fillStyle='#021226';g.fillRect(0,0,c.width,c.height);
+ o={c,sw,sh,pad};silCache.set(img,o);return o;
+}
+function drawShadow(s,w,h,now,q){
+ if(!q)return;
+ const o=silhouette(s.img),k=w/o.sw,dx=(s.x-W/2)/(W/2),shear=-(dx*.7+(dx>=0?.12:-.12));  // la luz viene del centro: la sombra se aleja de él
+ ctx.save();ctx.translate(s.x,s.y);
+ ctx.save();ctx.scale(w*.5,w*.5*.26);ctx.globalAlpha=.6;ctx.fillStyle=contactGrad;ctx.beginPath();ctx.arc(0,0,1,0,TAU);ctx.fill();ctx.restore();
+ if(q<2){ctx.restore();return}
+ ctx.transform(1,0,shear,-.24,0,0);
+ ctx.globalAlpha=.3*(.85+.15*Math.sin(now*.0009+s.phase));
+ ctx.drawImage(o.c,-w/2-o.pad*k,-h-o.pad*k,o.c.width*k,o.c.height*k);
+ ctx.restore();
+}
+
+// Sombreado volumétrico de cada decorado: luz arriba, base oscura, niebla azul por distancia
+function shadeSprite(s,w,h,zs){
+ const key=Math.round(zs*50);if(s.cache&&s.cacheKey===key)return s.cache;
+ const pw=Math.max(2,Math.ceil(w*zs)),ph=Math.max(2,Math.ceil(h*zs));
+ const c=s.cache||mk(pw,ph);c.width=pw;c.height=ph;const g=c.getContext('2d');
+ g.drawImage(s.img,0,0,pw,ph);g.globalCompositeOperation='source-atop';
+ const far=1-s.y/H;g.fillStyle=`rgba(25,95,150,${Math.max(0,far*.32)})`;g.fillRect(0,0,pw,ph);
+ let gr=g.createLinearGradient(0,0,0,ph);gr.addColorStop(0,'rgba(200,250,255,.34)');gr.addColorStop(.5,'rgba(200,250,255,0)');gr.addColorStop(.62,'rgba(2,18,48,0)');gr.addColorStop(1,'rgba(2,18,48,.42)');g.fillStyle=gr;g.fillRect(0,0,pw,ph);
+ const left=s.x<W/2?1:0;gr=g.createLinearGradient(0,0,pw,0);   // el lado que mira al centro recibe más luz
+ gr.addColorStop(left?1:0,'rgba(210,245,255,.16)');gr.addColorStop(left?0:1,'rgba(0,10,40,.2)');g.fillStyle=gr;g.fillRect(0,0,pw,ph);
+ s.cache=c;s.cacheKey=key;return c;
+}
+
+// Algunos corales y estructuras brillan (bioluminiscencia)
+for(const s of sprites)if((s.kind==='coral'&&Math.random()<.36)||(s.kind==='structure'&&Math.random()<.1))s.glow={c:glowSprites[Math.floor(Math.random()*glowSprites.length)],ph:rnd(0,6.28)};
+
+// Peces: tinte por profundidad (más oscuros y azules cuanto más hondos)
+const fishTint=new Map(),TINTS=['rgba(200,245,255,.10)',null,'rgba(3,30,80,.16)','rgba(2,20,60,.30)'];
+function tintedFish(img,level){
+ let arr=fishTint.get(img);if(!arr){arr=[];fishTint.set(img,arr)}
+ if(arr[level])return arr[level];
+ const c=mk(img.width,img.height),g=c.getContext('2d');g.drawImage(img,0,0);
+ if(TINTS[level]){g.globalCompositeOperation='source-atop';g.fillStyle=TINTS[level];g.fillRect(0,0,c.width,c.height)}
+ return arr[level]=c;
+}
+
+// Plancton / nieve marina
+const motes=Array.from({length:230},()=>({x:rnd(0,W),y:rnd(0,H),r:rnd(1.2,3.6),vy:rnd(3,13),sw:rnd(.2,.9),ph:rnd(0,6.28)}));
+// Medusas
+const jellies=Array.from({length:9},(_,i)=>({x:rnd(300,W-300),y:rnd(H*.15,H*.95),s:rnd(34,74),ph:rnd(0,6.28),ci:i%PALETTE.length,vy:0,vx:rnd(-6,6)}));
+
+// Rayos de luz: nacen en un punto sobre el centro de la cueva, como en el arte del fondo
+const SUN={x:W*.5,y:-260};
+const rays=Array.from({length:15},(_,i)=>({a:(i/14-.5)*1.15+rnd(-.04,.04),w:rnd(.025,.07),k:rnd(.5,1),ph:rnd(0,6.28)}));
+let rayGrad=null;
+function drawRays(c,t,day){
+ if(day<.02)return;
+ if(!rayGrad){rayGrad=c.createLinearGradient(0,SUN.y,0,H*.98);rayGrad.addColorStop(0,'rgba(190,245,255,.65)');rayGrad.addColorStop(.3,'rgba(150,230,255,.28)');rayGrad.addColorStop(1,'rgba(120,210,255,0)');}
+ c.save();c.globalCompositeOperation='lighter';c.fillStyle=rayGrad;const L=H*1.4;
+ for(const r of rays){
+  const a=r.a+Math.sin(t*.22+r.ph)*.035,fl=.72+.28*Math.sin(t*.7+r.ph*2),al=day*r.k*fl;
+  for(const pass of [2.4,1]){const hw=r.w*pass;
+   c.globalAlpha=al*(pass>1?.12:.22);c.beginPath();c.moveTo(SUN.x,SUN.y);
+   c.lineTo(SUN.x+Math.sin(a-hw)*L,SUN.y+Math.cos(a-hw)*L);c.lineTo(SUN.x+Math.sin(a+hw)*L,SUN.y+Math.cos(a+hw)*L);c.closePath();c.fill();}
+ }
+ // charco de luz sobre el suelo + resplandor de superficie
+ c.globalAlpha=.13*day;c.save();c.translate(W/2,H*.66);c.scale(1,.42);const lp=c.createRadialGradient(0,0,0,0,0,W*.34);lp.addColorStop(0,'rgba(190,255,245,.9)');lp.addColorStop(1,'rgba(120,230,230,0)');c.fillStyle=lp;c.fillRect(-W,-W,W*2,W*2);c.restore();
+ c.globalAlpha=.2*day;const tg=c.createLinearGradient(0,0,0,H*.28);tg.addColorStop(0,'rgba(210,252,255,.8)');tg.addColorStop(1,'rgba(210,252,255,0)');c.fillStyle=tg;c.fillRect(0,0,W,H*.28);
+ c.restore();
+}
+function drawCaustics(c,t,day,vx0,vx1,vy0,vy1){
+ if(day<.02)return;
+ c.save();c.globalCompositeOperation='lighter';
+ const top=H*.4,NS=26,x0=Math.max(0,vx0),w=Math.min(W,vx1)-x0;
+ for(let L=0;L<Math.min(2,Q.caustics);L++){
+  const u0=t*(L?-6:8);let vPrev=t*(L?7:4);   // posición del patrón en el borde de cada tira: se mantiene continua => sin costuras
+  for(let i=0;i<NS;i++){
+   const f0=i/NS,y0=top+(H-top)*f0,y1=top+(H-top)*(i+1)/NS;
+   const sc=(L?3.4:2.4)*(.45+Math.pow((f0+.5/NS),1.25)*1.2);   // perspectiva: más pequeñas lejos, más grandes cerca
+   const fy=y0-sc*vPrev;vPrev=(y1-fy)/sc;
+   if(y1<vy0||y0>vy1)continue;
+   causticPat.setTransform(new DOMMatrix([sc,0,0,sc,W/2-sc*u0,fy]));
+   c.fillStyle=causticPat;c.globalAlpha=day*(L?.06:.085)*(.5+.9*f0);c.fillRect(x0,y0,w,y1-y0);
+  }
+ }
+ c.restore();
+}
+// Capas auxiliares de baja resolución para los efectos de luz grandes (rayos y cáusticas): mucho más baratas y igual de suaves
+const rayLayer=mk(2,2),rctx=rayLayer.getContext('2d'),cauLayer=mk(2,2),cctx=cauLayer.getContext('2d');
+function beginLayer(cv,c,res){
+ const w=Math.max(2,Math.ceil(vw*res)),h=Math.max(2,Math.ceil(vh*res));
+ if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h}
+ c.setTransform(1,0,0,1,0,0);c.clearRect(0,0,w,h);
+ c.setTransform(cam.zoom*res,0,0,cam.zoom*res,w/2-cam.x*cam.zoom*res,h/2-cam.y*cam.zoom*res);
+}
+function blitLayer(cv,x0,y0,x1,y1){ctx.save();ctx.globalCompositeOperation='lighter';ctx.drawImage(cv,x0,y0,x1-x0,y1-y0);ctx.restore();}
+function drawJelly(j,t,night){
+ const p=Math.sin(t*1.7+j.ph),sq=Math.sin(t*1.7+j.ph+.9),bw=j.s*(1+.14*sq),bh=j.s*(.78-.13*sq),[r,g,b]=PALETTE[j.ci];
+ ctx.save();ctx.translate(j.x,j.y);ctx.globalCompositeOperation='lighter';
+ ctx.globalAlpha=.3+.45*night;const gs=j.s*4;ctx.drawImage(glowSprites[j.ci],-gs/2,-gs/2,gs,gs);
+ ctx.globalCompositeOperation='source-over';
+ const bell=()=>{ctx.beginPath();ctx.moveTo(-bw,0);ctx.bezierCurveTo(-bw,-bh*1.4,bw,-bh*1.4,bw,0);ctx.quadraticCurveTo(bw*.5,bh*.22,0,bh*.1);ctx.quadraticCurveTo(-bw*.5,bh*.22,-bw,0);ctx.closePath()};
+ // tentáculos
+ ctx.lineCap='round';
+ for(let k=0;k<7;k++){const x0=-bw*.75+k*(bw*1.5/6),len=j.s*(1.5+.3*Math.sin(k*2.1+j.ph));ctx.beginPath();ctx.moveTo(x0,bh*.08);
+  for(let q=1;q<=10;q++){const f=q/10;ctx.lineTo(x0+Math.sin(t*2.2+q*.7+k+j.ph)*j.s*.12*f,bh*.08+f*len)}
+  ctx.strokeStyle=`rgba(${r},${g},${b},.38)`;ctx.lineWidth=1.6;ctx.stroke();}
+ bell();const bg=ctx.createRadialGradient(0,-bh*.45,0,0,-bh*.2,bw*1.2);bg.addColorStop(0,'rgba(255,255,255,.7)');bg.addColorStop(.45,`rgba(${r},${g},${b},.42)`);bg.addColorStop(1,`rgba(${r},${g},${b},.1)`);
+ ctx.fillStyle=bg;ctx.fill();ctx.strokeStyle=`rgba(${r},${g},${b},.65)`;ctx.lineWidth=1.4;ctx.stroke();
+ ctx.restore();
+}
+
+/* ---------- Modo profundo (oscuridad + linterna) ---------- */
+const dark=mk(2,2),dctx=dark.getContext('2d');
+let night=0,nightTarget=0;
+const mouse={x:innerWidth/2,y:innerHeight/2},lamp={x:innerWidth/2,y:innerHeight/2};
+const lightBtn=document.querySelector('#lightBtn');
+function setNight(v){nightTarget=v?1:0;lightBtn.textContent=v?'☀️ Volver a la luz (L)':'🌙 Modo profundo (L)'}
+lightBtn.addEventListener('click',()=>setNight(!nightTarget));
+lightBtn.addEventListener('pointerdown',e=>e.stopPropagation());
+const toScreen=(wx,wy)=>[(wx-cam.x)*cam.zoom+vw/2,(wy-cam.y)*cam.zoom+vh/2];
+function drawDarkness(t){
+ if(night<.01)return;
+ const dw=Math.ceil(vw/2),dh=Math.ceil(vh/2);if(dark.width!==dw||dark.height!==dh){dark.width=dw;dark.height=dh}
+ dctx.globalCompositeOperation='source-over';dctx.clearRect(0,0,dw,dh);
+ dctx.fillStyle=`rgba(0,3,12,${.985*night})`;dctx.fillRect(0,0,dw,dh);
+ dctx.globalCompositeOperation='destination-out';
+ const cutE=(x,y,rx,ry,a)=>{dctx.globalAlpha=a;dctx.drawImage(cutSprite,(x-rx)/2,(y-ry)/2,rx,ry)};   // luz elíptica (rx, ry = radios)
+ const z=cam.zoom,lr=Math.max(.8,z),fl=.97+.03*Math.sin(t*9)*Math.sin(t*3.1);   // parpadeo leve de la linterna
+ cutE(lamp.x,lamp.y,310*lr*fl,310*lr*fl,1);cutE(lamp.x,lamp.y,450*lr,450*lr,.22);
+ dctx.globalAlpha=1;
+ ctx.setTransform(dpr,0,0,dpr,0,0);ctx.drawImage(dark,0,0,vw,vh);
+ ctx.save();ctx.globalCompositeOperation='lighter';ctx.globalAlpha=.22*night;const lg=290*Math.max(.8,cam.zoom);ctx.drawImage(lampGlow,lamp.x-lg,lamp.y-lg,lg*2,lg*2);ctx.restore();
+}
+
+function drawImage(im,x,y,w,h,alpha=1,flip=false){ctx.save();ctx.globalAlpha=alpha;if(flip){ctx.translate(x+w,y);ctx.scale(-1,1);ctx.drawImage(im,0,0,w,h)}else ctx.drawImage(im,x,y,w,h);ctx.restore();}
+
+const Q={shadow:2,rays:2,caustics:2,motes:1,res:1};   // 2 = completo; baja solo si el equipo va lento
+let time=0;
+function update(dt){
+ time+=dt;
+ night+=(nightTarget-night)*Math.min(1,dt*2.2);
+ lamp.x+=(mouse.x-lamp.x)*Math.min(1,dt*9);lamp.y+=(mouse.y-lamp.y)*Math.min(1,dt*9);
+ for(const g of fishGroups){
+  if(g.delay>0){g.delay-=dt;continue}
+  g.age+=dt;g.x+=g.speed*dt;
+  if(g.x-g.tail>W+100)layoutGroup(g,false);
+ }
+ for(const b of bubbles){b.y-=b.v*dt;if(b.y<-10){b.y=H+10;b.x=rnd(0,W)}}
+ for(const m of motes){m.y+=m.vy*dt;m.x+=Math.sin(time*m.sw+m.ph)*8*dt;if(m.y>H+10){m.y=-10;m.x=rnd(0,W)}}
+ for(const j of jellies){const pulse=Math.max(0,Math.sin(time*1.7+j.ph));j.y-=(5+26*pulse)*dt;j.y+=7*dt;j.x+=(j.vx+Math.sin(time*.4+j.ph)*8)*dt;
+  if(j.y<-120){j.y=H+120;j.x=rnd(300,W-300)}if(j.x<80||j.x>W-80)j.vx*=-1;}
+}
+function draw(now){
+ const t=now*.001,day=1-.88*night;
+ ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,vw,vh);
+ ctx.fillStyle='#062b57';ctx.fillRect(0,0,vw,vh);
+ const zs=cam.zoom*dpr,vx0=cam.x-vw/(2*cam.zoom),vx1=cam.x+vw/(2*cam.zoom),vy0=cam.y-vh/(2*cam.zoom),vy1=cam.y+vh/(2*cam.zoom);
+ ctx.save();ctx.translate(vw/2,vh/2);ctx.scale(cam.zoom,cam.zoom);ctx.translate(-cam.x,-cam.y);
+ ctx.imageSmoothingEnabled=true;
+ if(bg)drawImage(bg,0,0,W,H);
+ const haze=ctx.createLinearGradient(0,0,0,H);haze.addColorStop(0,'#092f65aa');haze.addColorStop(.38,'#0c6d9a22');haze.addColorStop(1,'#031b42aa');ctx.fillStyle=haze;ctx.fillRect(0,0,W,H);
+ if(day>=.02&&Q.rays){beginLayer(rayLayer,rctx,.24*Q.res);drawRays(rctx,t,day);blitLayer(rayLayer,vx0,vy0,vx1,vy1);}
+ // plancton brillante (rebota la luz)
+ ctx.save();ctx.globalCompositeOperation='lighter';
+ for(let mi=0,mn=Math.floor(motes.length*Q.motes);mi<mn;mi++){const m=motes[mi];if(m.x<vx0-20||m.x>vx1+20||m.y<vy0-20||m.y>vy1+20)continue;
+  ctx.globalAlpha=(.22+.3*Math.sin(t*1.6+m.ph))*(.55+.45*day+.35*night);const sz=m.r*4;ctx.drawImage(dotGlow,m.x-sz/2,m.y-sz/2,sz,sz)}
+ ctx.restore();
+ for(const b of bubbles){ctx.beginPath();ctx.arc(b.x,b.y,b.r,0,TAU);ctx.strokeStyle=`rgba(170,235,255,${b.a})`;ctx.lineWidth=1.5;ctx.stroke();
+  if(b.r>2.4){ctx.fillStyle=`rgba(255,255,255,${b.a*1.2})`;ctx.fillRect(b.x-b.r*.45,b.y-b.r*.5,1.6,1.6)}}   // brillo especular
+ // decorado: sombra proyectada + halo de luz + sprite sombreado
+ for(const s of sprites){const depth=.78+(s.y/H)*.22,w=s.w*depth,h=s.h*depth;
+  if(s.x+w<vx0-150||s.x-w>vx1+150||s.y-h>vy1+80||s.y+h*.4<vy0-80)continue;
+  drawShadow(s,w,h,now,Q.shadow);
+  if(s.glow){const pu=.6+.4*Math.sin(t*1.3+s.glow.ph),r=w*1.15;ctx.save();ctx.globalCompositeOperation='lighter';
+   ctx.globalAlpha=(.12+.5*night)*pu;ctx.drawImage(s.glow.c,s.x-r,s.y-h*.45-r,r*2,r*2);                       // aura alrededor del objeto
+   if(night>.02){ctx.globalAlpha=.38*night*pu;ctx.drawImage(s.glow.c,s.x-w*2.1,s.y-w*.8,w*4.2,w*1.6);}       // charco de luz coloreado sobre el suelo (elipse plana)
+   ctx.restore();}
+  const bob=Math.sin(now*.0007+s.phase)*2;
+  ctx.drawImage(shadeSprite(s,w,h,zs),s.x-w/2,s.y-h+bob,w,h);
+ }
+ if(day>=.02&&Q.caustics){beginLayer(cauLayer,cctx,.4*Q.res);drawCaustics(cctx,t,day,vx0,vx1,vy0,vy1);blitLayer(cauLayer,vx0,vy0,vx1,vy1);}
+ for(const j of jellies){if(j.x<vx0-250||j.x>vx1+250||j.y<vy0-300||j.y>vy1+300)continue;drawJelly(j,t,night)}
+ // peces (pixel art 16×16, sin suavizado; los sprites miran a la derecha)
+ ctx.imageSmoothingEnabled=false;
+ for(const g of fishGroups){if(g.delay>0)continue;
+  for(const f of g.fish){const x=g.x-f.ox;if(x<-80||x>W+80)continue;
+   const y=g.baseY+f.oy+Math.sin(g.age*1.25+f.bob)*10;if(y<vy0-80||y>vy1+80||x<vx0-80||x>vx1+80)continue;
+   const dep=.78+(y/H)*.28,sz=Math.round(16*f.scale*dep*2.15);
+   if(y>H*.36){ctx.save();ctx.globalAlpha=.16*day+.04;ctx.translate(x+sz*.25,y+sz*1.15);ctx.scale(sz*.5,sz*.5*.3);ctx.fillStyle=contactGrad;ctx.beginPath();ctx.arc(0,0,1,0,TAU);ctx.fill();ctx.restore();}   // sombra sobre el suelo
+   const lvl=Math.min(3,Math.floor((y/H)*4));
+   ctx.drawImage(tintedFish(f.img,lvl),Math.round(x-sz/2),Math.round(y-sz/2),sz,sz);
+  }
+ }
+ ctx.imageSmoothingEnabled=true;
+ ctx.restore();
+ // luz profunda + viñeta en espacio de pantalla
+ drawDarkness(t);
+ ctx.setTransform(dpr,0,0,dpr,0,0);
+ const vg=ctx.createRadialGradient(vw/2,vh/2,Math.min(vw,vh)*.4,vw/2,vh/2,Math.max(vw,vh)*.78);vg.addColorStop(0,'rgba(0,16,40,0)');vg.addColorStop(1,'rgba(0,12,34,.5)');ctx.fillStyle=vg;ctx.fillRect(0,0,vw,vh);
+}
+document.querySelector('#loading').style.display='none';
+
+/* ---------- Controles ---------- */
+const keys=new Set();
+const MOVE_KEYS=new Set(['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight']);
+addEventListener('keydown',e=>{if(MOVE_KEYS.has(e.code)){keys.add(e.code);e.preventDefault()}else if(e.code==='KeyL'&&!e.repeat)setNight(!nightTarget)});
+addEventListener('keyup',e=>keys.delete(e.code));
+addEventListener('blur',()=>keys.clear());   // evita que la cámara se quede "pegada" al cambiar de ventana
+document.addEventListener('visibilitychange',()=>keys.clear());
+
+function zoomAt(mx,my,z){   // zoom hacia el punto del cursor
+ const wx=cam.x+(mx-vw/2)/cam.zoom,wy=cam.y+(my-vh/2)/cam.zoom;
+ cam.zoom=Math.max(minZoom(),Math.min(Math.max(MAX_ZOOM,minZoom()),z));
+ cam.x=wx-(mx-vw/2)/cam.zoom;cam.y=wy-(my-vh/2)/cam.zoom;clampCam();
+}
+addEventListener('pointermove',e=>{mouse.x=e.clientX;mouse.y=e.clientY},{passive:true});   // la linterna sigue al cursor incluso sobre el HUD
+const ptrs=new Map();let pinchD=0;
+const pdist=()=>{const [a,b]=[...ptrs.values()];return Math.hypot(a.x-b.x,a.y-b.y)};
+canvas.addEventListener('pointerdown',e=>{canvas.setPointerCapture(e.pointerId);ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});if(ptrs.size===2)pinchD=pdist();});
+canvas.addEventListener('pointermove',e=>{
+ const p=ptrs.get(e.pointerId);if(!p)return;
+ if(ptrs.size===1){cam.x-=(e.clientX-p.x)/cam.zoom;cam.y-=(e.clientY-p.y)/cam.zoom;}
+ p.x=e.clientX;p.y=e.clientY;
+ if(ptrs.size===2){const d=pdist(),[a,b]=[...ptrs.values()];if(pinchD>0)zoomAt((a.x+b.x)/2,(a.y+b.y)/2,cam.zoom*d/pinchD);pinchD=d;}
+ clampCam();
+});
+const endPtr=e=>{ptrs.delete(e.pointerId);pinchD=0};
+['pointerup','pointercancel','lostpointercapture'].forEach(t=>canvas.addEventListener(t,endPtr));
+canvas.addEventListener('wheel',e=>{e.preventDefault();zoomAt(e.clientX,e.clientY,cam.zoom*Math.exp(-e.deltaY*.0015));},{passive:false});
+
+function move(dt){   // velocidad independiente de los FPS
+ let dx=0,dy=0;
+ if(keys.has('KeyA')||keys.has('ArrowLeft'))dx--;if(keys.has('KeyD')||keys.has('ArrowRight'))dx++;
+ if(keys.has('KeyW')||keys.has('ArrowUp'))dy--;if(keys.has('KeyS')||keys.has('ArrowDown'))dy++;
+ if(dx&&dy){dx*=Math.SQRT1_2;dy*=Math.SQRT1_2}
+ const s=600*dt/cam.zoom;cam.x+=dx*s;cam.y+=dy*s;clampCam();
+}
+
+
+/* =====================  HUD: minimapa, corazones, ranuras  ===================== */
+const MM=document.querySelector('#mm'),mctx=MM.getContext('2d'),MMR=950;   // el radar muestra 950 unidades alrededor de la cámara
+const bgSmall=mk(Math.round(W/6),Math.round(H/6));if(bg)bgSmall.getContext('2d').drawImage(bg,0,0,bgSmall.width,bgSmall.height);
+const KIND_COL={coral:'#ff6fd0',structure:'#a9bde0',house:'#ffd27a'};
+const hatch=(()=>{const c=mk(10,10),x=c.getContext('2d');x.strokeStyle='rgba(90,200,255,.07)';x.lineWidth=1.2;x.beginPath();x.moveTo(-2,12);x.lineTo(12,-2);x.moveTo(-2,2);x.lineTo(2,-2);x.moveTo(8,12);x.lineTo(12,8);x.stroke();return c})();
+const hatchPat=mctx.createPattern(hatch,'repeat');
+function drawMini(t){
+ const S=MM.width,C=S/2,k=S/(2*MMR),ox=cam.x-MMR,oy=cam.y-MMR,X=wx=>(wx-ox)*k,Y=wy=>(wy-oy)*k;
+ const sweep=(t*1.1)%TAU;   // ángulo del haz (sentido horario desde las 3 en punto)
+ const blip=(x,y)=>{const d=(((sweep-Math.atan2(y-C,x-C))%TAU)+TAU)%TAU;return .3+.7*Math.pow(1-d/TAU,3)};   // destello: brilla cuando pasa el haz y se apaga después
+ mctx.setTransform(1,0,0,1,0,0);mctx.clearRect(0,0,S,S);
+ mctx.save();mctx.beginPath();mctx.arc(C,C,C,0,TAU);mctx.clip();
+ // abismo (fuera del mundo)
+ let g=mctx.createRadialGradient(C,C,0,C,C,C);g.addColorStop(0,'#06294a');g.addColorStop(1,'#020a18');mctx.fillStyle=g;mctx.fillRect(0,0,S,S);
+ mctx.fillStyle=hatchPat;mctx.fillRect(0,0,S,S);
+ // mapa del mundo con tinte aguamarina
+ mctx.save();mctx.beginPath();mctx.rect(X(0),Y(0),W*k,H*k);mctx.clip();
+ mctx.drawImage(bgSmall,X(0),Y(0),W*k,H*k);
+ mctx.fillStyle='rgba(0,64,104,.30)';mctx.fillRect(0,0,S,S);
+ mctx.globalCompositeOperation='soft-light';mctx.fillStyle='rgba(90,230,230,.45)';mctx.fillRect(0,0,S,S);mctx.globalCompositeOperation='source-over';
+ mctx.restore();
+ // borde del mundo: línea de neón suave
+ mctx.save();mctx.shadowColor='rgba(110,255,235,.95)';mctx.shadowBlur=10;mctx.strokeStyle='rgba(150,255,240,.7)';mctx.lineWidth=2.5;mctx.strokeRect(X(0),Y(0),W*k,H*k);mctx.restore();
+ // anillos y cruz del radar
+ mctx.strokeStyle='rgba(150,255,240,.16)';mctx.lineWidth=1.4;
+ for(const r of [.3,.62])mctx.beginPath(),mctx.arc(C,C,C*r,0,TAU),mctx.stroke();
+ mctx.beginPath();mctx.moveTo(C,6);mctx.lineTo(C,S-6);mctx.moveTo(6,C);mctx.lineTo(S-6,C);mctx.stroke();
+ // elementos fijos del mapa
+ for(const s of sprites){const x=X(s.x),y=Y(s.y-s.h*.3);if(x<-8||x>S+8||y<-8||y>S+8)continue;
+  if(s.glow){const p=.6+.4*Math.sin(t*2+s.glow.ph);mctx.fillStyle=`rgba(130,255,245,${.9*p})`;mctx.shadowColor='#7ffbff';mctx.shadowBlur=8;mctx.beginPath();mctx.arc(x,y,2.6,0,TAU);mctx.fill();mctx.shadowBlur=0;continue}
+  mctx.globalAlpha=.85;mctx.fillStyle=KIND_COL[s.kind];
+  if(s.kind==='house'){mctx.fillRect(x-3,y-3,6,6)}else{mctx.beginPath();mctx.arc(x,y,s.kind==='structure'?2.6:2,0,TAU);mctx.fill()}
+  mctx.globalAlpha=1;}
+ // peces y medusas: blips de radar
+ for(const gr of fishGroups){if(gr.delay>0)continue;for(const f of gr.fish){const x=X(gr.x-f.ox),y=Y(gr.baseY+f.oy);if(x<-4||x>S+4||y<-4||y>S+4)continue;
+  const a=blip(x,y);mctx.fillStyle=`rgba(235,255,255,${a})`;mctx.shadowColor='#bff';mctx.shadowBlur=6*a;mctx.fillRect(x-1.8,y-1.8,3.6,3.6);}}
+ mctx.shadowBlur=0;
+ for(const j of jellies){const x=X(j.x),y=Y(j.y);if(x<-20||x>S+20||y<-20||y>S+20)continue;const [r,gg,b]=PALETTE[j.ci],a=blip(x,y);
+  const rg=mctx.createRadialGradient(x,y,0,x,y,13);rg.addColorStop(0,`rgba(${r},${gg},${b},${.4+.6*a})`);rg.addColorStop(1,`rgba(${r},${gg},${b},0)`);mctx.fillStyle=rg;mctx.fillRect(x-13,y-13,26,26);}
+ // haz del radar con estela
+ if(mctx.createConicGradient){const cg=mctx.createConicGradient(sweep-.2*TAU,C,C);cg.addColorStop(0,'rgba(120,255,235,0)');cg.addColorStop(.2,'rgba(120,255,235,.42)');cg.addColorStop(.2005,'rgba(120,255,235,0)');cg.addColorStop(1,'rgba(120,255,235,0)');mctx.fillStyle=cg;mctx.fillRect(0,0,S,S);}
+ mctx.strokeStyle='rgba(190,255,245,.55)';mctx.lineWidth=2;mctx.beginPath();mctx.moveTo(C,C);mctx.lineTo(C+Math.cos(sweep)*C,C+Math.sin(sweep)*C);mctx.stroke();
+ // zona visible: esquinas
+ const hw=vw/(2*cam.zoom)*k,hh=vh/(2*cam.zoom)*k,L=Math.min(14,hw*.5,hh*.5);
+ mctx.fillStyle='rgba(255,255,255,.05)';mctx.fillRect(C-hw,C-hh,hw*2,hh*2);
+ mctx.strokeStyle='#d8fffb';mctx.lineWidth=2.6;mctx.lineCap='round';mctx.beginPath();
+ for(const [sx,sy] of [[-1,-1],[1,-1],[1,1],[-1,1]]){const px=C+sx*hw,py=C+sy*hh;mctx.moveTo(px-sx*L,py);mctx.lineTo(px,py);mctx.lineTo(px,py-sy*L)}
+ mctx.stroke();
+ // tú: anillo que late
+ const pr=6+2.2*Math.sin(t*3);mctx.strokeStyle='rgba(255,255,255,.75)';mctx.lineWidth=1.8;mctx.beginPath();mctx.arc(C,C,pr,0,TAU);mctx.stroke();
+ mctx.fillStyle='#fff';mctx.shadowColor='#fff';mctx.shadowBlur=8;mctx.beginPath();mctx.arc(C,C,3,0,TAU);mctx.fill();mctx.shadowBlur=0;
+ // viñeta hacia el marco + reflejo de cristal
+ g=mctx.createRadialGradient(C,C,C*.6,C,C,C);g.addColorStop(0,'rgba(0,10,26,0)');g.addColorStop(1,'rgba(0,10,26,.62)');mctx.fillStyle=g;mctx.fillRect(0,0,S,S);
+ g=mctx.createLinearGradient(0,0,S*.75,S*.75);g.addColorStop(0,'rgba(255,255,255,.2)');g.addColorStop(.28,'rgba(255,255,255,.05)');g.addColorStop(.5,'rgba(255,255,255,0)');mctx.fillStyle=g;mctx.fillRect(0,0,S,S);
+ mctx.restore();
+}
+function mmGo(e){const r=MM.getBoundingClientRect();cam.x+=((e.clientX-r.left)/r.width-.5)*2*MMR;cam.y+=((e.clientY-r.top)/r.height-.5)*2*MMR;clampCam();}
+MM.addEventListener('pointerdown',e=>{MM.setPointerCapture(e.pointerId);mmGo(e)});
+MM.addEventListener('pointermove',e=>{if(e.buttons&1)mmGo(e)});
+
+// Corazones: health en medios corazones (0–20)
+const heartsEl=document.querySelector('#hearts');let health=20;
+for(let i=0;i<10;i++){const d=document.createElement('div');d.className='heart';heartsEl.appendChild(d)}
+function setHealth(v){health=Math.max(0,Math.min(20,v));[...heartsEl.children].forEach((d,i)=>{const h=health-i*2;d.className='heart'+(h>=2?' full':h===1?' half':'')})}
+setHealth(20);
+// Ranuras (1–9)
+const slotsEl=document.querySelector('#slots'),slotEls=[];let selSlot=0;
+for(let i=0;i<9;i++){const d=document.createElement('div');d.className='slot';d.innerHTML='<i>'+(i+1)+'</i>';d.addEventListener('click',()=>selectSlot(i));slotsEl.appendChild(d);slotEls.push(d)}
+function selectSlot(i){selSlot=i;slotEls.forEach((d,j)=>d.classList.toggle('sel',j===i))}
+function setSlot(i,src){const d=slotEls[i];if(!d)return;const old=d.querySelector('img');if(old)old.remove();if(src){const im=document.createElement('img');im.src=src;d.appendChild(im)}}
+selectSlot(0);
+addEventListener('keydown',e=>{if(/^Digit[1-9]$/.test(e.code))selectSlot(+e.code.slice(5)-1)});
+// Menú
+const menuBtn=document.querySelector('#menuBtn'),menuPanel=document.querySelector('#menuPanel');
+menuBtn.addEventListener('click',()=>{menuPanel.hidden=!menuPanel.hidden});
+document.querySelector('#homeBtn').addEventListener('click',()=>{cam.x=W/2;cam.y=H/2;cam.zoom=1;clampCam();menuPanel.hidden=true});
+
+window.oceanica={ui:{setHealth,setSlot,selectSlot},cam,sprites,jellies,fishGroups,setNight,W,H,Q,get step(){return gStep}};
+/* ---------- Bucle principal (ahora SÍ se repite) ---------- */
+let last=performance.now();
+// Regulador de calidad: si el equipo va lento (<42 fps) apaga efectos caros de uno en uno. Nunca vuelve a subir (evita parpadeos).
+const STEPS=[{res:.7},{caustics:1,motes:.6},{res:.5,shadow:1},{caustics:0},{rays:0,shadow:0,motes:.3}];
+let gAcc=0,gN=0,gStep=0,gWarm=2.5;
+function governor(raw){
+ if(raw>.25||document.hidden)return;       // ignora pausas de pestaña
+ if((gWarm-=raw)>0)return;
+ gAcc+=raw;gN++;
+ if(gAcc>=1.5){const fps=gN/gAcc;gAcc=0;gN=0;if(fps<42&&gStep<STEPS.length)Object.assign(Q,STEPS[gStep++]);}
+}
+function frame(t){
+ const raw=(t-last)/1000,dt=Math.min(Math.max(raw,0),.05);last=t;governor(raw);
+ move(dt);update(dt);draw(t);drawMini(t*.001);
+ requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+})();
+</script></body></html>
